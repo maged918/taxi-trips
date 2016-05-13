@@ -1,14 +1,14 @@
-//package distribution;
+package distribution;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -43,33 +43,36 @@ public class TripsDist {
 		public void map(Object key, Text value, Context context) throws IOException, InterruptedException{
 			
 			TimeZone tz = TimeZone.getTimeZone("America/San_Fransisco");
-			ZoneId zi = ZoneId.of("America/Los_Angeles");
 			
 			StringTokenizer st = new StringTokenizer(value.toString());
 			st.nextToken(); 
 			
 			long startTime = ((long) Double.parseDouble(st.nextToken())) * 1000L;
-			Instant i1 = Instant.ofEpochMilli(startTime);
-			ZonedDateTime z1 = ZonedDateTime.ofInstant(i1, zi);
-		    
+		    Calendar cal1 = Calendar.getInstance(tz);
+		    cal1.setTimeInMillis(startTime);
+			
 		    double lat1 = toRadian(Double.parseDouble(st.nextToken()));
 			double long1 = toRadian(Double.parseDouble(st.nextToken()));
 			
 			long endTime = ((long) Double.parseDouble(st.nextToken())) * 1000L;
-			Instant i2 = Instant.ofEpochMilli(endTime);
-			ZonedDateTime z2 = ZonedDateTime.ofInstant(i2, zi);
+			Calendar cal2 = Calendar.getInstance(tz);
+			cal2.setTimeInMillis(endTime);
 			
-			long secondsBetween = ChronoUnit.SECONDS.between(z1, z2);
+			long secondsBetween = Math.abs(TimeUnit.MILLISECONDS.toSeconds(cal1.getTime().getTime() - cal2.getTime().getTime()));
+			if(secondsBetween == 0) return;
+			double hours = secondsBetween/3600.0;
 			
 			double lat2 = toRadian(Double.parseDouble(st.nextToken()));
 			double long2 = toRadian(Double.parseDouble(st.nextToken()));
+			if(lat1 == lat2 && long1 == long2) return;
+			
 			double distance = computeDistance(lat1, long1, lat2, long2);
+			double speed = distance/hours;
+			if(speed >200) return;
+			
 			word.set(((int)distance) + "");
 			context.write(word, one);
 			
-			//double speed = distance * 1000 / secondsBetween;
-			//System.out.println(speed);
-			//System.out.println(distance);
 		}
 	}
 	
@@ -98,6 +101,15 @@ public class TripsDist {
 	    job.setOutputValueClass(IntWritable.class);
 	    FileInputFormat.addInputPath(job, new Path(args[0]));
 	    FileOutputFormat.setOutputPath(job, new Path(args[1]));
-	    System.exit(job.waitForCompletion(true) ? 0 : 1);
+	    
+	    FileInputFormat.setMaxInputSplitSize(job, (int)Math.pow(10, 6));
+	    job.setNumReduceTasks(10);
+	    
+	    //System.exit(job.waitForCompletion(true) ? 0 : 1);
+	    long start = new Date().getTime();
+	    boolean status = job.waitForCompletion(true);            
+	    long end = new Date().getTime();
+	    
+	    System.out.println("Job took "+ TimeUnit.MILLISECONDS.toMillis(end - start) + " milliseconds");
 	}
 }
